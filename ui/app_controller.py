@@ -99,11 +99,12 @@ class StreamlitApp:
             constraints.append(GCContentConstraint(min_gc=gc_min, max_gc=gc_max))
 
         if st.sidebar.checkbox("Avoid Restriction Sites"):
-            available_sites = list(COMMON_RESTRICTION_SITES.keys())
+            available_sites = sorted(COMMON_RESTRICTION_SITES.keys())
             selected_sites = st.sidebar.multiselect(
                 "Restriction Enzymes",
                 options=available_sites,
                 default=["EcoRI", "BamHI", "HindIII"],
+                format_func=lambda name: f"{name} ({COMMON_RESTRICTION_SITES[name]})",
             )
             sites_dict = {
                 name: COMMON_RESTRICTION_SITES[name] for name in selected_sites
