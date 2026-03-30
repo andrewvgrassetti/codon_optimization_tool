@@ -282,6 +282,11 @@ class StreamlitApp:
         shared_constraints: List[OptimizationConstraint],
     ) -> None:
         """Run optimization for all input sequences across all variant configs."""
+        # Increment run counter so widget keys are unique per optimization run.
+        # This prevents Streamlit's session-state caching from showing stale
+        # sequences in text_area / download_button widgets.
+        st.session_state.opt_run_id = st.session_state.get("opt_run_id", 0) + 1
+
         results: List[tuple[str, OptimizationResult | None, str]] = []
 
         for seq_info in sequences:
@@ -327,6 +332,10 @@ class StreamlitApp:
         """Render optimization results."""
         st.header("📋 Results")
 
+        # Use the run counter to generate unique widget keys so that
+        # Streamlit does not serve stale cached values from a prior run.
+        run_id = st.session_state.get("opt_run_id", 0)
+
         for idx, (name, result, error) in enumerate(results):
             if error:
                 st.error(error)
@@ -353,13 +362,13 @@ class StreamlitApp:
                     render_sequence_display(
                         result.protein_sequence,
                         f"Protein Sequence ({len(result.protein_sequence)} aa)",
-                        key=f"protein_seq_{idx}",
+                        key=f"protein_seq_{run_id}_{idx}",
                     )
                 with col2:
                     render_sequence_display(
                         result.optimized_dna.sequence,
                         f"Optimized DNA ({len(result.optimized_dna)} bp)",
-                        key=f"dna_seq_{idx}",
+                        key=f"dna_seq_{run_id}_{idx}",
                     )
 
                 # Codon usage chart
@@ -369,9 +378,11 @@ class StreamlitApp:
                 )
 
                 # Export section
-                self._render_export(name, result, idx)
+                self._render_export(name, result, idx, run_id)
 
-    def _render_export(self, name: str, result: OptimizationResult, idx: int = 0) -> None:
+    def _render_export(
+        self, name: str, result: OptimizationResult, idx: int = 0, run_id: int = 0
+    ) -> None:
         """Render download buttons for exporting results."""
         st.subheader("💾 Export")
         col1, col2, col3 = st.columns(3)
@@ -383,7 +394,7 @@ class StreamlitApp:
                 data=fasta_data,
                 file_name=f"{name}_optimized.fasta",
                 mime="text/plain",
-                key=f"fasta_{idx}",
+                key=f"fasta_{run_id}_{idx}",
             )
         with col2:
             csv_data = CsvExporter.export(result, name)
@@ -392,7 +403,7 @@ class StreamlitApp:
                 data=csv_data,
                 file_name=f"{name}_summary.csv",
                 mime="text/csv",
-                key=f"csv_{idx}",
+                key=f"csv_{run_id}_{idx}",
             )
         with col3:
             text_data = TextExporter.export(result, name)
@@ -401,5 +412,5 @@ class StreamlitApp:
                 data=text_data,
                 file_name=f"{name}_report.txt",
                 mime="text/plain",
-                key=f"report_{idx}",
+                key=f"report_{run_id}_{idx}",
             )
