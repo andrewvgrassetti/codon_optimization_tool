@@ -213,10 +213,16 @@ class StreamlitApp:
         """Parse raw text input into a list of sequences."""
         try:
             records = FastaParser.parse(text)
-            return [
-                {"name": r.name, "sequence": r.sequence, "description": r.description}
-                for r in records
-            ]
+            result = []
+            for r in records:
+                # If the parser assigned a default name and the user provided one, use theirs
+                record_name = r.name
+                if record_name == "unnamed_sequence" and name:
+                    record_name = name
+                result.append(
+                    {"name": record_name, "sequence": r.sequence, "description": r.description}
+                )
+            return result
         except ValueError:
             # Treat as raw sequence
             clean = text.replace("\n", "").replace(" ", "").upper()
