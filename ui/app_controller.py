@@ -8,9 +8,8 @@ import streamlit as st
 
 from src.config.constants import COMMON_RESTRICTION_SITES, VALID_DNA_BASES, VALID_PROTEIN_CHARS
 from src.export.exporters import CsvExporter, FastaExporter, TextExporter
-from src.models.sequences import OptimizationResult
+from src.models.sequences import OptimizationResult, VariantConfig
 from src.optimization.constraints import (
-    GCContentConstraint,
     HomopolymerConstraint,
     MotifConstraint,
     OptimizationConstraint,
@@ -48,10 +47,10 @@ class StreamlitApp:
         )
 
         # Sidebar configuration
-        organism, strategy, constraints = self._render_sidebar()
+        organism, variant_configs, shared_constraints = self._render_sidebar()
 
         # Main workspace
-        self._render_main_workspace(organism, strategy, constraints)
+        self._render_main_workspace(organism, variant_configs, shared_constraints)
 
     def _render_sidebar(self):
         """Render the sidebar configuration panel."""
@@ -72,28 +71,71 @@ class StreamlitApp:
         )
         organism_name = organism_options[selected_display]
 
-        # Strategy
-        strategy = st.sidebar.selectbox(
-            "Optimization Strategy",
-            options=["Highest Frequency", "Weighted Random"],
+        # ── Variant Generation ──────────────────────────────────────
+        st.sidebar.header("🔀 Variant Generation")
+
+        num_variants = st.sidebar.number_input(
+            "Number of Variants",
+            min_value=1,
+            max_value=10,
+            value=1,
             help=(
-                "**Highest Frequency**: Always picks the most-used codon (deterministic).\n\n"
-                "**Weighted Random**: Picks codons weighted by usage frequency (stochastic)."
+                "Generate multiple optimized variants of the same sequence. "
+                "Each variant can use a different optimization strategy and/or "
+                "GC content range."
             ),
         )
-        strategy_key = (
-            "highest_frequency" if strategy == "Highest Frequency" else "weighted_random"
-        )
 
-        # Constraints
-        st.sidebar.header("🔧 Constraints")
+        variant_configs: List[VariantConfig] = []
+        for i in range(1, int(num_variants) + 1):
+            if num_variants > 1:
+                st.sidebar.markdown(f"**Variant {i}**")
 
-        constraints: List[OptimizationConstraint] = []
+            strategy = st.sidebar.selectbox(
+                f"Strategy" if num_variants == 1 else f"Strategy (Variant {i})",
+                options=["Highest Frequency", "Weighted Random"],
+                key=f"strategy_{i}",
+                help=(
+                    "**Highest Frequency**: Always picks the most-used codon (deterministic).\n\n"
+                    "**Weighted Random**: Picks codons weighted by usage frequency (stochastic)."
+                ),
+            )
+            strategy_key = (
+                "highest_frequency" if strategy == "Highest Frequency" else "weighted_random"
+            )
 
-        if st.sidebar.checkbox("GC Content Range"):
-            gc_min = st.sidebar.slider("Min GC%", 0.0, 1.0, 0.30, 0.05)
-            gc_max = st.sidebar.slider("Max GC%", 0.0, 1.0, 0.70, 0.05)
-            constraints.append(GCContentConstraint(min_gc=gc_min, max_gc=gc_max))
+            gc_min: Optional[float] = None
+            gc_max: Optional[float] = None
+            if st.sidebar.checkbox(
+                "GC Content Range" if num_variants == 1 else f"GC Content Range (Variant {i})",
+                key=f"gc_check_{i}",
+            ):
+                gc_min = st.sidebar.slider(
+                    f"Min GC%" if num_variants == 1 else f"Min GC% (Variant {i})",
+                    0.0, 1.0, 0.30, 0.05,
+                    key=f"gc_min_{i}",
+                )
+                gc_max = st.sidebar.slider(
+                    f"Max GC%" if num_variants == 1 else f"Max GC% (Variant {i})",
+                    0.0, 1.0, 0.70, 0.05,
+                    key=f"gc_max_{i}",
+                )
+
+            variant_configs.append(
+                VariantConfig(
+                    strategy_name=strategy_key,
+                    gc_min=gc_min,
+                    gc_max=gc_max,
+                )
+            )
+
+            if num_variants > 1 and i < num_variants:
+                st.sidebar.divider()
+
+        # ── Shared Constraints ──────────────────────────────────────
+        st.sidebar.header("🔧 Shared Constraints")
+
+        shared_constraints: List[OptimizationConstraint] = []
 
         if st.sidebar.checkbox("Avoid Restriction Sites", value=True):
             available_sites = sorted(COMMON_RESTRICTION_SITES.keys())
@@ -106,13 +148,13 @@ class StreamlitApp:
             sites_dict = {
                 name: COMMON_RESTRICTION_SITES[name] for name in selected_sites
             }
-            constraints.append(RestrictionSiteConstraint(sites_to_avoid=sites_dict))
+            shared_constraints.append(RestrictionSiteConstraint(sites_to_avoid=sites_dict))
 
         if st.sidebar.checkbox("Avoid Homopolymer Runs"):
             max_run = st.sidebar.number_input(
                 "Max homopolymer length", min_value=3, max_value=15, value=6
             )
-            constraints.append(HomopolymerConstraint(max_run_length=max_run))
+            shared_constraints.append(HomopolymerConstraint(max_run_length=max_run))
 
         if st.sidebar.checkbox("Avoid Custom Motifs"):
             motif_text = st.sidebar.text_input(
@@ -121,9 +163,9 @@ class StreamlitApp:
             )
             if motif_text.strip():
                 motifs = [m.strip() for m in motif_text.split(",") if m.strip()]
-                constraints.append(MotifConstraint(forbidden_motifs=motifs))
+                shared_constraints.append(MotifConstraint(forbidden_motifs=motifs))
 
-        return organism_name, strategy_key, constraints
+        return organism_name, variant_configs, shared_constraints
 
     @staticmethod
     def _detect_sequence_type(sequence: str) -> str:
@@ -147,8 +189,8 @@ class StreamlitApp:
     def _render_main_workspace(
         self,
         organism_name: str,
-        strategy: str,
-        constraints: List[OptimizationConstraint],
+        variant_configs: List[VariantConfig],
+        shared_constraints: List[OptimizationConstraint],
     ) -> None:
         """Render the main input/output workspace."""
 
@@ -202,7 +244,7 @@ class StreamlitApp:
             "🚀 Optimize", type="primary", width="stretch"
         ):
             self._run_optimization(
-                sequences_to_optimize, organism_name, strategy, constraints
+                sequences_to_optimize, organism_name, variant_configs, shared_constraints
             )
 
         # Show stored results
@@ -233,10 +275,10 @@ class StreamlitApp:
         self,
         sequences: List[dict],
         organism_name: str,
-        strategy: str,
-        constraints: List[OptimizationConstraint],
+        variant_configs: List[VariantConfig],
+        shared_constraints: List[OptimizationConstraint],
     ) -> None:
-        """Run optimization for all input sequences."""
+        """Run optimization for all input sequences across all variant configs."""
         results: List[tuple[str, OptimizationResult | None, str]] = []
 
         for seq_info in sequences:
@@ -253,18 +295,24 @@ class StreamlitApp:
                 results.append((name, None, error_msg))
                 continue
 
-            # Optimize
+            # Generate all variants for this sequence
             try:
-                result = self.service.optimize(
+                variant_results = self.service.optimize_variants(
                     sequence=sequence,
                     input_type=input_type,
                     organism_name=organism_name,
-                    strategy_name=strategy,
-                    constraints=constraints,
+                    variant_configs=variant_configs,
+                    shared_constraints=shared_constraints,
                 )
-                # Attach validation warnings
-                result.warnings = (validation.warnings or []) + (result.warnings or [])
-                results.append((name, result, ""))
+                for result in variant_results:
+                    # Attach validation warnings
+                    result.warnings = (validation.warnings or []) + (result.warnings or [])
+                    display_name = (
+                        f"{name} – {result.variant_label}"
+                        if len(variant_configs) > 1
+                        else name
+                    )
+                    results.append((display_name, result, ""))
             except Exception as e:
                 results.append((name, None, f"Optimization error for '{name}': {e}"))
 
@@ -276,7 +324,7 @@ class StreamlitApp:
         """Render optimization results."""
         st.header("📋 Results")
 
-        for name, result, error in results:
+        for idx, (name, result, error) in enumerate(results):
             if error:
                 st.error(error)
                 continue
@@ -302,11 +350,13 @@ class StreamlitApp:
                     render_sequence_display(
                         result.protein_sequence,
                         f"Protein Sequence ({len(result.protein_sequence)} aa)",
+                        key=f"protein_seq_{idx}",
                     )
                 with col2:
                     render_sequence_display(
                         result.optimized_dna.sequence,
                         f"Optimized DNA ({len(result.optimized_dna)} bp)",
+                        key=f"dna_seq_{idx}",
                     )
 
                 # Codon usage chart
@@ -316,9 +366,9 @@ class StreamlitApp:
                 )
 
                 # Export section
-                self._render_export(name, result)
+                self._render_export(name, result, idx)
 
-    def _render_export(self, name: str, result: OptimizationResult) -> None:
+    def _render_export(self, name: str, result: OptimizationResult, idx: int = 0) -> None:
         """Render download buttons for exporting results."""
         st.subheader("💾 Export")
         col1, col2, col3 = st.columns(3)
@@ -330,6 +380,7 @@ class StreamlitApp:
                 data=fasta_data,
                 file_name=f"{name}_optimized.fasta",
                 mime="text/plain",
+                key=f"fasta_{idx}",
             )
         with col2:
             csv_data = CsvExporter.export(result, name)
@@ -338,6 +389,7 @@ class StreamlitApp:
                 data=csv_data,
                 file_name=f"{name}_summary.csv",
                 mime="text/csv",
+                key=f"csv_{idx}",
             )
         with col3:
             text_data = TextExporter.export(result, name)
@@ -346,4 +398,5 @@ class StreamlitApp:
                 data=text_data,
                 file_name=f"{name}_report.txt",
                 mime="text/plain",
+                key=f"report_{idx}",
             )

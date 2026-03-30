@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.models.sequences import DNASequence, ProteinSequence, BaseSequence
+from src.models.sequences import DNASequence, ProteinSequence, BaseSequence, VariantConfig
 
 
 class TestBaseSequence:
@@ -62,3 +62,30 @@ class TestProteinSequence:
         prot = ProteinSequence(sequence="MKFLV")
         assert prot.sequence == "MKFLV"
         assert len(prot) == 5
+
+
+class TestVariantConfig:
+    def test_default_values(self):
+        config = VariantConfig()
+        assert config.strategy_name == "highest_frequency"
+        assert config.gc_min is None
+        assert config.gc_max is None
+
+    def test_label_highest_frequency(self):
+        config = VariantConfig(strategy_name="highest_frequency")
+        assert config.label == "Highest Frequency"
+
+    def test_label_weighted_random(self):
+        config = VariantConfig(strategy_name="weighted_random")
+        assert config.label == "Weighted Random"
+
+    def test_label_with_gc_range(self):
+        config = VariantConfig(
+            strategy_name="weighted_random", gc_min=0.40, gc_max=0.60
+        )
+        assert "Weighted Random" in config.label
+        assert "GC 40%–60%" in config.label
+
+    def test_label_without_gc_range(self):
+        config = VariantConfig(strategy_name="highest_frequency")
+        assert "GC" not in config.label

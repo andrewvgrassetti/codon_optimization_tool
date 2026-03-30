@@ -1,3 +1,3 @@
-from src.models.sequences import BaseSequence, DNASequence, ProteinSequence
+from src.models.sequences import BaseSequence, DNASequence, ProteinSequence, VariantConfig
 
-__all__ = ["BaseSequence", "DNASequence", "ProteinSequence"]
+__all__ = ["BaseSequence", "DNASequence", "ProteinSequence", "VariantConfig"]

@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 from src.analysis.metrics import CodonMetricsCalculator
 from src.config.organisms import OrganismProfile, OrganismRegistry, get_default_registry
-from src.models.sequences import DNASequence, OptimizationResult, ProteinSequence
+from src.models.sequences import DNASequence, OptimizationResult, ProteinSequence, VariantConfig
 from src.optimization.constraints import (
     GCContentConstraint,
     HomopolymerConstraint,
@@ -136,6 +136,51 @@ class OptimizationService:
             metrics_after=metrics_after,
             warnings=warnings,
         )
+
+    def optimize_variants(
+        self,
+        sequence: str,
+        input_type: str,
+        organism_name: str,
+        variant_configs: List[VariantConfig],
+        shared_constraints: List[OptimizationConstraint] | None = None,
+    ) -> List[OptimizationResult]:
+        """Optimize a sequence using multiple variant configurations.
+
+        Each variant can specify its own strategy and GC content constraints.
+        Shared constraints (restriction sites, homopolymers, motifs) are
+        applied to all variants.
+
+        Args:
+            sequence: Raw sequence string (DNA or protein).
+            input_type: 'dna' or 'protein'.
+            organism_name: Internal name of the target organism.
+            variant_configs: List of per-variant configurations.
+            shared_constraints: Constraints applied to every variant.
+
+        Returns:
+            List of OptimizationResult, one per variant config.
+        """
+        results: List[OptimizationResult] = []
+        for idx, config in enumerate(variant_configs, start=1):
+            # Build per-variant constraints: shared + optional GC constraint
+            constraints = list(shared_constraints or [])
+            if config.gc_min is not None and config.gc_max is not None:
+                constraints.append(
+                    GCContentConstraint(min_gc=config.gc_min, max_gc=config.gc_max)
+                )
+
+            result = self.optimize(
+                sequence=sequence,
+                input_type=input_type,
+                organism_name=organism_name,
+                strategy_name=config.strategy_name,
+                constraints=constraints,
+            )
+            result.variant_label = f"Variant {idx} – {config.label}"
+            results.append(result)
+
+        return results
 
     @staticmethod
     def _build_strategy(name: str, seed: int | None = None) -> OptimizationStrategy:
