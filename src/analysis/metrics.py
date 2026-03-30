@@ -118,13 +118,23 @@ class CodonMetricsCalculator:
         Weighted RSCU measures codon usage bias relative to a reference
         codon frequency table (the organism's codon usage frequencies).
 
-        For each codon:
+        For each amino acid present in the sequence, and for each of its
+        synonymous codons:
         1. Count occurrences (eff) and sum per amino acid (sum_eff)
         2. Expected frequency = reference_weight * sum_eff
-        3. weighted_RSCU = eff / expected_frequency
-        4. Return mean of all weighted_RSCU values
+        3. weighted_RSCU = eff / expected_frequency (0 when expected is 0)
+        4. Return mean of all per-codon weighted_RSCU values
 
-        Values near 1.0 indicate codon usage closely matches the reference.
+        Interpretation:
+        - Values near **1.0** indicate codon usage closely matches the
+          organism's natural codon frequencies (proportional usage).
+        - Values **below 1.0** indicate bias toward the most-preferred
+          codons. Typical range for highest-frequency optimization is
+          ~0.5–0.8 depending on protein amino acid composition (proteins
+          rich in highly degenerate amino acids like Leu/Ser/Arg trend
+          lower).
+        - Values **above 1.0** (up to ~2.0) indicate bias toward less-
+          preferred or rare codons.
         """
         seq = dna.upper()
 

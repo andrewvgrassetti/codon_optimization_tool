@@ -78,8 +78,8 @@ class TestWeightedRSCU:
         wrscu = CodonMetricsCalculator.weighted_rscu("", ecoli_table)
         assert wrscu == 0.0
 
-    def test_wrscu_optimal_sequence(self, ecoli_table):
-        """Highest-frequency codons should produce a positive wRSCU."""
+    def test_wrscu_optimal_below_one(self, ecoli_table):
+        """Highest-frequency codons should produce wRSCU below 1.0."""
         from src.optimization.optimizer import CodonOptimizer
         from src.optimization.strategies import HighestFrequencyStrategy
         from src.config.organisms import get_default_registry
@@ -88,12 +88,45 @@ class TestWeightedRSCU:
         optimizer = CodonOptimizer(
             organism=ecoli, strategy=HighestFrequencyStrategy()
         )
-        # Use a longer protein to get a representative sample
         result = optimizer.optimize_from_protein("MKFLVDTYARSNQEHGPWIC")
         wrscu = CodonMetricsCalculator.weighted_rscu(
             result.sequence, ecoli_table
         )
-        assert wrscu > 0.5
+        assert 0.4 < wrscu < 1.0
+
+    def test_wrscu_proportional_near_one(self, ecoli_table):
+        """Codons selected proportionally to usage should give wRSCU near 1.0."""
+        from src.optimization.optimizer import CodonOptimizer
+        from src.optimization.strategies import WeightedRandomStrategy
+        from src.config.organisms import get_default_registry
+
+        ecoli = get_default_registry().get("e_coli")
+        optimizer = CodonOptimizer(
+            organism=ecoli, strategy=WeightedRandomStrategy(seed=42)
+        )
+        # Use a long protein for statistical convergence
+        long_protein = "MKFLVDTYARSNQEHGPWIC" * 100
+        result = optimizer.optimize_from_protein(long_protein)
+        wrscu = CodonMetricsCalculator.weighted_rscu(
+            result.sequence, ecoli_table
+        )
+        assert 0.9 < wrscu < 1.1
+
+    def test_wrscu_suboptimal_above_one(self, ecoli_table):
+        """Least-preferred codons should produce wRSCU above 1.0 (up to ~2)."""
+        from src.config.constants import AMINO_ACID_TO_CODONS
+
+        # Build a sequence using the worst codon for each amino acid
+        protein = "MKFLVDTYARSNQEHGPWIC"
+        dna = []
+        for aa in protein:
+            codons = AMINO_ACID_TO_CODONS.get(aa, [])
+            worst = min(codons, key=lambda c: ecoli_table.get_frequency(c))
+            dna.append(worst)
+        dna_seq = "".join(dna)
+
+        wrscu = CodonMetricsCalculator.weighted_rscu(dna_seq, ecoli_table)
+        assert 1.0 < wrscu <= 2.5
 
     def test_wrscu_in_compute_metrics(self, ecoli_table):
         """compute_metrics should include weighted_rscu when codon table is given."""
