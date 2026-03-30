@@ -199,7 +199,7 @@ class StreamlitApp:
 
         # Optimize button
         if sequences_to_optimize and st.button(
-            "🚀 Optimize", type="primary", use_container_width=True
+            "🚀 Optimize", type="primary", width="stretch"
         ):
             self._run_optimization(
                 sequences_to_optimize, organism_name, strategy, constraints

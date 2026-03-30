@@ -64,3 +64,45 @@ class TestCodonMetricsCalculator:
         assert metrics["length_codons"] == 3
         assert "gc_content" in metrics
         assert "cai" in metrics
+        assert "weighted_rscu" in metrics
+
+
+class TestWeightedRSCU:
+    def test_wrscu_positive(self, ecoli_table):
+        """Weighted RSCU should be a positive value for a valid sequence."""
+        wrscu = CodonMetricsCalculator.weighted_rscu("ATGAAAGCC", ecoli_table)
+        assert wrscu > 0.0
+
+    def test_wrscu_empty_sequence(self, ecoli_table):
+        """Empty sequence should return 0.0."""
+        wrscu = CodonMetricsCalculator.weighted_rscu("", ecoli_table)
+        assert wrscu == 0.0
+
+    def test_wrscu_optimal_sequence(self, ecoli_table):
+        """Highest-frequency codons should produce a positive wRSCU."""
+        from src.optimization.optimizer import CodonOptimizer
+        from src.optimization.strategies import HighestFrequencyStrategy
+        from src.config.organisms import get_default_registry
+
+        ecoli = get_default_registry().get("e_coli")
+        optimizer = CodonOptimizer(
+            organism=ecoli, strategy=HighestFrequencyStrategy()
+        )
+        # Use a longer protein to get a representative sample
+        result = optimizer.optimize_from_protein("MKFLVDTYARSNQEHGPWIC")
+        wrscu = CodonMetricsCalculator.weighted_rscu(
+            result.sequence, ecoli_table
+        )
+        assert wrscu > 0.5
+
+    def test_wrscu_in_compute_metrics(self, ecoli_table):
+        """compute_metrics should include weighted_rscu when codon table is given."""
+        metrics = CodonMetricsCalculator.compute_metrics("ATGAAAGCC", ecoli_table)
+        assert "weighted_rscu" in metrics
+        assert isinstance(metrics["weighted_rscu"], float)
+        assert metrics["weighted_rscu"] > 0.0
+
+    def test_wrscu_no_codon_table(self):
+        """compute_metrics without codon table should not include weighted_rscu."""
+        metrics = CodonMetricsCalculator.compute_metrics("ATGAAAGCC")
+        assert "weighted_rscu" not in metrics

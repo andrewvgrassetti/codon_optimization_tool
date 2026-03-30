@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Dict, List, Optional
 
 from src.config.constants import CODON_TABLE, AMINO_ACID_TO_CODONS
@@ -111,13 +111,60 @@ class CodonMetricsCalculator:
             return 0.0
         return math.exp(log_sum / count)
 
+    @classmethod
+    def weighted_rscu(cls, dna: str, codon_table: CodonUsageTable) -> float:
+        """Calculate average weighted RSCU for a DNA sequence.
+
+        Weighted RSCU measures codon usage bias relative to a reference
+        codon frequency table (the organism's codon usage frequencies).
+
+        For each codon:
+        1. Count occurrences (eff) and sum per amino acid (sum_eff)
+        2. Expected frequency = reference_weight * sum_eff
+        3. weighted_RSCU = eff / expected_frequency
+        4. Return mean of all weighted_RSCU values
+
+        Values near 1.0 indicate codon usage closely matches the reference.
+        """
+        seq = dna.upper()
+
+        # Count codons (excluding stop codons)
+        codon_counts: Dict[str, int] = defaultdict(int)
+        for i in range(0, len(seq) - 2, 3):
+            codon = seq[i : i + 3]
+            aa = CODON_TABLE.get(codon)
+            if aa is not None and aa != "*":
+                codon_counts[codon] += 1
+
+        # Calculate weighted RSCU for each codon grouped by amino acid
+        wrscu_values: List[float] = []
+        for aa, codons in AMINO_ACID_TO_CODONS.items():
+            sum_eff = sum(codon_counts.get(c, 0) for c in codons)
+            if sum_eff == 0:
+                continue
+
+            for codon in codons:
+                eff = codon_counts.get(codon, 0)
+                weight = codon_table.get_frequency(codon)
+                expected_freq = weight * sum_eff
+
+                if expected_freq > 0:
+                    wrscu_values.append(eff / expected_freq)
+                else:
+                    wrscu_values.append(0.0)
+
+        if not wrscu_values:
+            return 0.0
+        return sum(wrscu_values) / len(wrscu_values)
+
     @staticmethod
     def compute_metrics(
         dna: str, codon_table: Optional[CodonUsageTable] = None
     ) -> Dict[str, object]:
         """Compute a comprehensive set of metrics for a DNA sequence.
 
-        Returns a dict with keys like 'length', 'gc_content', 'cai', etc.
+        Returns a dict with keys like 'length', 'gc_content', 'cai',
+        'weighted_rscu', etc.
         """
         analyzer = SequenceAnalyzer()
         metrics: Dict[str, object] = {
@@ -131,5 +178,8 @@ class CodonMetricsCalculator:
 
         if codon_table:
             metrics["cai"] = CodonMetricsCalculator.cai_score(dna, codon_table)
+            metrics["weighted_rscu"] = CodonMetricsCalculator.weighted_rscu(
+                dna, codon_table
+            )
 
         return metrics

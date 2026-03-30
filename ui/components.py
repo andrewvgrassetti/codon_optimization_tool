@@ -30,6 +30,7 @@ def render_metrics_cards(
         "gc2": ("GC2", ".1%"),
         "gc3": ("GC3", ".1%"),
         "cai": ("CAI Score", ".3f"),
+        "weighted_rscu": ("wRSCU", ".4f"),
     }
 
     cols = st.columns(min(len(display_keys), 4))
@@ -52,20 +53,26 @@ def render_comparison_metrics(
     st.subheader("📊 Metrics Comparison")
 
     rows = []
-    keys = ["gc_content", "gc1", "gc2", "gc3", "cai"]
+    keys = ["gc_content", "gc1", "gc2", "gc3", "cai", "weighted_rscu"]
     labels = {
         "gc_content": "GC Content",
         "gc1": "GC Position 1",
         "gc2": "GC Position 2",
         "gc3": "GC Position 3",
         "cai": "CAI Score",
+        "weighted_rscu": "Weighted RSCU",
     }
 
     for key in keys:
         before_val = before.get(key)
         after_val = after.get(key)
         if before_val is not None or after_val is not None:
-            fmt = ".1%" if key.startswith("gc") else ".3f"
+            if key.startswith("gc"):
+                fmt = ".1%"
+            elif key == "weighted_rscu":
+                fmt = ".4f"
+            else:
+                fmt = ".3f"
             rows.append({
                 "Metric": labels.get(key, key),
                 "Original": f"{before_val:{fmt}}" if before_val is not None else "N/A",
@@ -108,7 +115,7 @@ def render_codon_usage_chart(
         height=350,
         margin=dict(t=40, b=40, l=40, r=20),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_sequence_display(
