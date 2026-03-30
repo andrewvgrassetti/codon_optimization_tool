@@ -78,6 +78,32 @@ class ProteinSequence(BaseSequence):
 
 
 @dataclass
+class VariantConfig:
+    """Configuration for a single optimization variant.
+
+    Each variant can have its own optimization strategy and GC content
+    constraints while sharing other settings (organism, shared constraints).
+    """
+
+    strategy_name: str = "highest_frequency"
+    gc_min: Optional[float] = None
+    gc_max: Optional[float] = None
+
+    @property
+    def label(self) -> str:
+        """Human-readable label describing this variant configuration."""
+        strategy_label = (
+            "Highest Frequency"
+            if self.strategy_name == "highest_frequency"
+            else "Weighted Random"
+        )
+        parts = [strategy_label]
+        if self.gc_min is not None and self.gc_max is not None:
+            parts.append(f"GC {self.gc_min:.0%}–{self.gc_max:.0%}")
+        return ", ".join(parts)
+
+
+@dataclass
 class OptimizationResult:
     """Container for optimization results."""
 
@@ -89,3 +115,4 @@ class OptimizationResult:
     metrics_before: Optional[dict] = field(default_factory=dict)
     metrics_after: Optional[dict] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    variant_label: str = ""

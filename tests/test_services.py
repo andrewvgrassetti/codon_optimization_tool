@@ -88,3 +88,139 @@ class TestOptimizationService:
             seed=42,
         )
         assert result.optimized_dna.translate() == "MKFLVDTY"
+
+
+class TestOptimizeVariants:
+    """Tests for multi-variant optimization."""
+
+    def test_single_variant_returns_one_result(self, service):
+        from src.models.sequences import VariantConfig
+
+        configs = [VariantConfig(strategy_name="highest_frequency")]
+        results = service.optimize_variants(
+            sequence="MKFLV",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        assert len(results) == 1
+        assert results[0].optimized_dna.translate() == "MKFLV"
+        assert results[0].variant_label == "Variant 1 – Highest Frequency"
+        assert results[0].metrics_after
+
+    def test_multiple_variants_returns_correct_count(self, service):
+        from src.models.sequences import VariantConfig
+
+        configs = [
+            VariantConfig(strategy_name="highest_frequency"),
+            VariantConfig(strategy_name="weighted_random"),
+            VariantConfig(strategy_name="weighted_random"),
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLVDTY",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        assert len(results) == 3
+        # All variants must preserve the protein sequence
+        for r in results:
+            assert r.optimized_dna.translate() == "MKFLVDTY"
+            assert r.metrics_after
+
+    def test_different_strategies_may_produce_different_sequences(self, service):
+        from src.models.sequences import VariantConfig
+
+        configs = [
+            VariantConfig(strategy_name="highest_frequency"),
+            VariantConfig(strategy_name="weighted_random"),
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLVDTYWSCRHP",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        assert len(results) == 2
+        # Both preserve the protein
+        for r in results:
+            assert r.optimized_dna.translate() == "MKFLVDTYWSCRHP"
+        # They should have different variant labels
+        assert "Highest Frequency" in results[0].variant_label
+        assert "Weighted Random" in results[1].variant_label
+
+    def test_variant_with_gc_constraint(self, service):
+        from src.models.sequences import VariantConfig
+
+        configs = [
+            VariantConfig(strategy_name="highest_frequency", gc_min=0.90, gc_max=1.0),
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLV",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        assert len(results) == 1
+        # GC constraint should trigger a warning
+        assert any("GC content" in w for w in results[0].warnings)
+        assert "GC 90%–100%" in results[0].variant_label
+
+    def test_variants_with_different_gc_constraints(self, service):
+        from src.models.sequences import VariantConfig
+
+        configs = [
+            VariantConfig(strategy_name="highest_frequency", gc_min=0.30, gc_max=0.70),
+            VariantConfig(strategy_name="highest_frequency", gc_min=0.90, gc_max=1.0),
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLV",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        assert len(results) == 2
+        # Second variant should warn about GC; first may not
+        assert any("GC content" in w for w in results[1].warnings)
+
+    def test_shared_constraints_applied_to_all_variants(self, service):
+        from src.models.sequences import VariantConfig
+        from src.optimization.constraints import RestrictionSiteConstraint
+
+        shared = [RestrictionSiteConstraint(sites_to_avoid={"EcoRI": "GAATTC"})]
+        configs = [
+            VariantConfig(strategy_name="highest_frequency"),
+            VariantConfig(strategy_name="weighted_random"),
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLV",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+            shared_constraints=shared,
+        )
+        assert len(results) == 2
+        # Both variants should have been checked for restriction sites
+        for r in results:
+            assert r.optimized_dna.translate() == "MKFLV"
+
+    def test_variant_from_dna_input(self, service):
+        from src.models.sequences import DNASequence, VariantConfig
+
+        dna = "ATGAAATTTCTGGTGTAA"
+        original_protein = DNASequence(sequence=dna).translate()
+        configs = [
+            VariantConfig(strategy_name="highest_frequency"),
+            VariantConfig(strategy_name="weighted_random"),
+        ]
+        results = service.optimize_variants(
+            sequence=dna,
+            input_type="dna",
+            organism_name="human",
+            variant_configs=configs,
+        )
+        assert len(results) == 2
+        for r in results:
+            assert r.optimized_dna.translate() == original_protein
+            assert r.metrics_before
+            assert r.metrics_after

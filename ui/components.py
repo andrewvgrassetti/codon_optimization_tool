@@ -119,13 +119,14 @@ def render_codon_usage_chart(
 
 
 def render_sequence_display(
-    sequence: str, label: str = "Sequence", wrap: int = 80
+    sequence: str, label: str = "Sequence", wrap: int = 80,
+    key: str | None = None,
 ) -> None:
     """Display a sequence in a formatted text area."""
     wrapped = "\n".join(
         sequence[i : i + wrap] for i in range(0, len(sequence), wrap)
     )
-    st.text_area(label, wrapped, height=150, disabled=True)
+    st.text_area(label, wrapped, height=150, disabled=True, key=key)
 
 
 def render_warnings(warnings: list[str]) -> None:
