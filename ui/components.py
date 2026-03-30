@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.analysis.metrics import SequenceAnalyzer
+from src.config.constants import AMINO_ACID_ABBREVIATIONS, CODON_TABLE
 from src.models.sequences import OptimizationResult
 
 
@@ -76,6 +77,15 @@ def render_comparison_metrics(
         st.table(df)
 
 
+def _codon_label(codon: str) -> str:
+    """Return a codon label with its amino acid abbreviation, e.g. 'ATG (Met)'."""
+    aa = CODON_TABLE.get(codon.upper(), "")
+    abbrev = AMINO_ACID_ABBREVIATIONS.get(aa, "")
+    if abbrev:
+        return f"{codon} ({abbrev})"
+    return codon
+
+
 def render_codon_usage_chart(
     dna_sequence: str, title: str = "Codon Usage Distribution"
 ) -> None:
@@ -85,7 +95,7 @@ def render_codon_usage_chart(
         return
 
     sorted_codons = sorted(dist.items(), key=lambda x: x[1], reverse=True)
-    codons = [c for c, _ in sorted_codons[:30]]  # Top 30 for readability
+    codons = [_codon_label(c) for c, _ in sorted_codons[:30]]  # Top 30 for readability
     counts = [n for _, n in sorted_codons[:30]]
 
     fig = go.Figure(data=[

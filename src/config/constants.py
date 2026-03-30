@@ -42,6 +42,15 @@ for _codon, _aa in CODON_TABLE.items():
 
 AMINO_ACIDS: str = "ACDEFGHIKLMNPQRSTVWY"
 
+# Single-letter amino acid code -> three-letter abbreviation
+AMINO_ACID_ABBREVIATIONS: Dict[str, str] = {
+    "A": "Ala", "C": "Cys", "D": "Asp", "E": "Glu", "F": "Phe",
+    "G": "Gly", "H": "His", "I": "Ile", "K": "Lys", "L": "Leu",
+    "M": "Met", "N": "Asn", "P": "Pro", "Q": "Gln", "R": "Arg",
+    "S": "Ser", "T": "Thr", "V": "Val", "W": "Trp", "Y": "Tyr",
+    "*": "Stop",
+}
+
 VALID_DNA_BASES: str = "ATCG"
 
 VALID_PROTEIN_CHARS: str = AMINO_ACIDS + "*"
