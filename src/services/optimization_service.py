@@ -13,6 +13,7 @@ from src.optimization.constraints import (
     MotifConstraint,
     OptimizationConstraint,
     RestrictionSiteConstraint,
+    WRSCUConstraint,
 )
 from src.optimization.optimizer import CodonOptimizer
 from src.optimization.strategies import (
@@ -163,12 +164,22 @@ class OptimizationService:
         """
         results: List[OptimizationResult] = []
         for idx, config in enumerate(variant_configs, start=1):
-            # Build per-variant constraints: shared + optional GC constraint
+            # Build per-variant constraints: shared + optional GC + optional wRSCU
             constraints = list(shared_constraints or [])
             if config.gc_min is not None and config.gc_max is not None:
                 constraints.append(
                     GCContentConstraint(min_gc=config.gc_min, max_gc=config.gc_max)
                 )
+            if config.wrscu_min is not None and config.wrscu_max is not None:
+                organism = self.registry.get(organism_name)
+                if organism is not None:
+                    constraints.append(
+                        WRSCUConstraint(
+                            codon_table=organism.codon_table,
+                            min_wrscu=config.wrscu_min,
+                            max_wrscu=config.wrscu_max,
+                        )
+                    )
 
             result = self.optimize(
                 sequence=sequence,

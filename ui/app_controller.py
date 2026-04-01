@@ -7,7 +7,7 @@ from typing import List, Optional
 import streamlit as st
 
 from src.config.constants import COMMON_RESTRICTION_SITES, VALID_DNA_BASES, VALID_PROTEIN_CHARS
-from src.export.exporters import CsvExporter, FastaExporter, TextExporter
+from src.export.exporters import CsvExporter, FastaExporter, MultiVariantCsvExporter, TextExporter
 from src.models.sequences import OptimizationResult, VariantConfig
 from src.optimization.constraints import (
     HomopolymerConstraint,
@@ -124,11 +124,33 @@ class StreamlitApp:
                     st.sidebar.warning("Min GC% should not exceed Max GC%.")
                     gc_min, gc_max = gc_max, gc_min
 
+            wrscu_min: Optional[float] = None
+            wrscu_max: Optional[float] = None
+            if st.sidebar.checkbox(
+                "wRSCU Range" if num_variants == 1 else f"wRSCU Range (Variant {i})",
+                key=f"wrscu_check_{i}",
+            ):
+                wrscu_min = st.sidebar.slider(
+                    f"Min wRSCU" if num_variants == 1 else f"Min wRSCU (Variant {i})",
+                    0.0, 2.0, 0.50, 0.05,
+                    key=f"wrscu_min_{i}",
+                )
+                wrscu_max = st.sidebar.slider(
+                    f"Max wRSCU" if num_variants == 1 else f"Max wRSCU (Variant {i})",
+                    0.0, 2.0, 1.50, 0.05,
+                    key=f"wrscu_max_{i}",
+                )
+                if wrscu_min > wrscu_max:
+                    st.sidebar.warning("Min wRSCU should not exceed Max wRSCU.")
+                    wrscu_min, wrscu_max = wrscu_max, wrscu_min
+
             variant_configs.append(
                 VariantConfig(
                     strategy_name=strategy_key,
                     gc_min=gc_min,
                     gc_max=gc_max,
+                    wrscu_min=wrscu_min,
+                    wrscu_max=wrscu_max,
                 )
             )
 
@@ -335,6 +357,18 @@ class StreamlitApp:
         # Use the run counter to generate unique widget keys so that
         # Streamlit does not serve stale cached values from a prior run.
         run_id = st.session_state.get("opt_run_id", 0)
+
+        # Consolidated CSV download when there are multiple valid results
+        valid_results = [(n, r, e) for n, r, e in results if r is not None and not e]
+        if len(valid_results) > 1:
+            csv_data = MultiVariantCsvExporter.export(results)
+            st.download_button(
+                "📊 Download All Variants (CSV)",
+                data=csv_data,
+                file_name="all_variants_summary.csv",
+                mime="text/csv",
+                key=f"all_variants_csv_{run_id}",
+            )
 
         for idx, (name, result, error) in enumerate(results):
             if error:

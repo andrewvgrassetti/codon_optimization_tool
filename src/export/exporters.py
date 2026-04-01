@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Dict
+from typing import Dict, List
 
 from src.models.sequences import OptimizationResult
 
@@ -107,3 +107,73 @@ class TextExporter:
             lines.append("")
 
         return "\n".join(lines)
+
+
+class MultiVariantCsvExporter:
+    """Export multiple optimization results as a single CSV with one row per variant."""
+
+    @staticmethod
+    def export(
+        results: List[tuple[str, OptimizationResult | None, str]],
+    ) -> str:
+        """Generate a CSV string with one row per variant.
+
+        Columns match the user-requested layout: name, optimization strategy,
+        %GC range, %GC of CDS, %GC 1, %GC 2, %GC 3, CAI, wRSCU, sequence.
+        """
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        writer.writerow([
+            "name",
+            "optimization strategy",
+            "%GC range",
+            "%GC of CDS",
+            "%GC 1",
+            "%GC 2",
+            "%GC 3",
+            "CAI",
+            "wRSCU",
+            "sequence",
+        ])
+
+        for name, result, error in results:
+            if error or result is None:
+                continue
+            metrics = result.metrics_after or {}
+            gc_range = ""
+            if result.variant_label:
+                # Extract GC range from variant label if present
+                import re
+                gc_match = re.search(r"GC (\d+%–\d+%)", result.variant_label)
+                if gc_match:
+                    gc_range = gc_match.group(1)
+
+            strategy = ""
+            if result.variant_label:
+                if "Highest Frequency" in result.variant_label:
+                    strategy = "Highest Frequency"
+                elif "Weighted Random" in result.variant_label:
+                    strategy = "Weighted Random"
+
+            gc_content = metrics.get("gc_content")
+            gc1 = metrics.get("gc1")
+            gc2 = metrics.get("gc2")
+            gc3 = metrics.get("gc3")
+            cai = metrics.get("cai")
+            wrscu = metrics.get("weighted_rscu")
+
+            writer.writerow([
+                name,
+                strategy,
+                gc_range,
+                f"{gc_content:.4f}" if isinstance(gc_content, float) else "",
+                f"{gc1:.4f}" if isinstance(gc1, float) else "",
+                f"{gc2:.4f}" if isinstance(gc2, float) else "",
+                f"{gc3:.4f}" if isinstance(gc3, float) else "",
+                f"{cai:.4f}" if isinstance(cai, float) else "",
+                f"{wrscu:.4f}" if isinstance(wrscu, float) else "",
+                result.optimized_dna.sequence,
+            ])
+
+        return output.getvalue()

@@ -81,13 +81,16 @@ class ProteinSequence(BaseSequence):
 class VariantConfig:
     """Configuration for a single optimization variant.
 
-    Each variant can have its own optimization strategy and GC content
-    constraints while sharing other settings (organism, shared constraints).
+    Each variant can have its own optimization strategy, GC content
+    constraints, and wRSCU constraints while sharing other settings
+    (organism, shared constraints).
     """
 
     strategy_name: str = "highest_frequency"
     gc_min: Optional[float] = None
     gc_max: Optional[float] = None
+    wrscu_min: Optional[float] = None
+    wrscu_max: Optional[float] = None
 
     @property
     def label(self) -> str:
@@ -100,6 +103,8 @@ class VariantConfig:
         parts = [strategy_label]
         if self.gc_min is not None and self.gc_max is not None:
             parts.append(f"GC {self.gc_min:.0%}–{self.gc_max:.0%}")
+        if self.wrscu_min is not None and self.wrscu_max is not None:
+            parts.append(f"wRSCU {self.wrscu_min:.2f}–{self.wrscu_max:.2f}")
         return ", ".join(parts)
 
 

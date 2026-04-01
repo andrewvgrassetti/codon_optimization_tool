@@ -126,3 +126,30 @@ class MotifConstraint(OptimizationConstraint):
 
     def name(self) -> str:
         return "Motif Avoidance"
+
+
+@dataclass
+class WRSCUConstraint(OptimizationConstraint):
+    """Ensure weighted RSCU falls within a specified range."""
+
+    codon_table: CodonUsageTable = None  # type: ignore[assignment]
+    min_wrscu: float = 0.50
+    max_wrscu: float = 1.50
+
+    def check(self, dna_sequence: str) -> List[str]:
+        if not dna_sequence or self.codon_table is None:
+            return []
+        wrscu = CodonMetricsCalculator.weighted_rscu(dna_sequence, self.codon_table)
+        warnings: List[str] = []
+        if wrscu < self.min_wrscu:
+            warnings.append(
+                f"wRSCU ({wrscu:.4f}) is below minimum ({self.min_wrscu:.4f})."
+            )
+        if wrscu > self.max_wrscu:
+            warnings.append(
+                f"wRSCU ({wrscu:.4f}) is above maximum ({self.max_wrscu:.4f})."
+            )
+        return warnings
+
+    def name(self) -> str:
+        return f"wRSCU ({self.min_wrscu:.2f}–{self.max_wrscu:.2f})"
