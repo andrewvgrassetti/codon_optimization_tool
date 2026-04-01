@@ -12,7 +12,7 @@ from src.optimization.constraints import (
     WRSCUConstraint,
 )
 from src.optimization.optimizer import CodonOptimizer
-from src.optimization.strategies import HighestFrequencyStrategy, WeightedRandomStrategy
+from src.optimization.strategies import HighestFrequencyStrategy, WeightedRandomStrategy, RandomOptimizationStrategy
 
 
 @pytest.fixture
@@ -246,3 +246,232 @@ class TestConstraints:
         assert not result.sequence.endswith("TAA")
         assert not result.sequence.endswith("TAG")
         assert not result.sequence.endswith("TGA")
+
+
+class TestWeightedRandomWithConstraints:
+    """WeightedRandomStrategy rejection-sampling behaviour."""
+
+    def test_without_constraints_returns_none_from_full_sequence(self, ecoli_profile):
+        """No constraints → optimize_full_sequence returns None (per-codon path)."""
+        strategy = WeightedRandomStrategy(seed=7)
+        result = strategy.optimize_full_sequence("MKFLV", ecoli_profile.codon_table)
+        assert result is None
+
+    def test_with_gc_constraints_produces_sequence_in_range(self, human_profile):
+        """With an achievable GC range the strategy should find a valid sequence."""
+        # Use a wide-but-reachable GC range for a moderate protein
+        strategy = WeightedRandomStrategy(
+            gc_min=0.40, gc_max=0.65, max_attempts=500
+        )
+        optimizer = CodonOptimizer(organism=human_profile, strategy=strategy)
+        protein = "MKFLVDTYWSCRHPQEINA"
+        result = optimizer.optimize_from_protein(protein)
+        assert result.translate() == protein
+        gc = result.gc_content
+        assert 0.40 <= gc <= 0.65, f"GC {gc:.3f} outside [0.40, 0.65]"
+
+    def test_with_wrscu_constraints_produces_sequence_in_range(self, human_profile):
+        """With an achievable wRSCU range the strategy should find a valid sequence."""
+        from src.analysis.metrics import CodonMetricsCalculator
+        # wRSCU ~0.80–1.10 is achievable via weighted-random for human
+        strategy = WeightedRandomStrategy(
+            wrscu_min=0.80, wrscu_max=1.10, max_attempts=500
+        )
+        optimizer = CodonOptimizer(organism=human_profile, strategy=strategy)
+        protein = "MKFLVDTYWSCRHPQEINA"
+        result = optimizer.optimize_from_protein(protein)
+        assert result.translate() == protein
+        wrscu = CodonMetricsCalculator.weighted_rscu(
+            result.sequence, human_profile.codon_table
+        )
+        assert 0.80 <= wrscu <= 1.10, f"wRSCU {wrscu:.3f} outside [0.80, 1.10]"
+
+    def test_fallback_best_candidate_with_warning_when_impossible(self, ecoli_profile):
+        """When constraints cannot be satisfied the best candidate + warning are returned."""
+        # GC > 99% is effectively impossible for a real protein
+        strategy = WeightedRandomStrategy(
+            gc_min=0.99, gc_max=1.0, max_attempts=20
+        )
+        optimizer = CodonOptimizer(organism=ecoli_profile, strategy=strategy)
+        result = optimizer.optimize_from_protein("MKFLV")
+        # Must still encode the correct protein
+        assert result.translate() == "MKFLV"
+        # Strategy should have recorded a fallback warning
+        assert len(strategy.last_warnings) > 0
+        assert "could not satisfy" in strategy.last_warnings[0].lower()
+
+    def test_seeded_reproducibility_without_constraints(self, ecoli_profile):
+        """Without constraints, seeded behaviour is unchanged."""
+        s1 = WeightedRandomStrategy(seed=99)
+        s2 = WeightedRandomStrategy(seed=99)
+        opt1 = CodonOptimizer(organism=ecoli_profile, strategy=s1)
+        opt2 = CodonOptimizer(organism=ecoli_profile, strategy=s2)
+        r1 = opt1.optimize_from_protein("MKFLVDTY")
+        r2 = opt2.optimize_from_protein("MKFLVDTY")
+        assert r1.sequence == r2.sequence
+
+    def test_preserves_amino_acids_with_constraints(self, human_profile):
+        """Rejection-sampling must preserve the exact amino acid sequence."""
+        strategy = WeightedRandomStrategy(gc_min=0.45, gc_max=0.60)
+        optimizer = CodonOptimizer(organism=human_profile, strategy=strategy)
+        protein = "MKFLVDTY"
+        result = optimizer.optimize_from_protein(protein)
+        assert result.translate() == protein
+
+
+class TestRandomOptimizationStrategy:
+    """RandomOptimizationStrategy behaviour."""
+
+    def test_uniform_selection_without_constraints(self, ecoli_profile):
+        """Without constraints uses per-codon uniform random (optimize_full_sequence → None)."""
+        strategy = RandomOptimizationStrategy(seed=0)
+        assert strategy.optimize_full_sequence("MKFLV", ecoli_profile.codon_table) is None
+
+    def test_preserves_amino_acids_without_constraints(self, ecoli_profile):
+        strategy = RandomOptimizationStrategy(seed=42)
+        optimizer = CodonOptimizer(organism=ecoli_profile, strategy=strategy)
+        protein = "MKFLVDTYWSCRHP"
+        result = optimizer.optimize_from_protein(protein)
+        assert result.translate() == protein
+
+    def test_with_gc_constraints_produces_sequence_in_range(self, human_profile):
+        """With an achievable GC range the strategy should find a valid sequence."""
+        strategy = RandomOptimizationStrategy(
+            gc_min=0.35, gc_max=0.65, max_attempts=500
+        )
+        optimizer = CodonOptimizer(organism=human_profile, strategy=strategy)
+        protein = "MKFLVDTYWSCRHPQEINA"
+        result = optimizer.optimize_from_protein(protein)
+        assert result.translate() == protein
+        gc = result.gc_content
+        assert 0.35 <= gc <= 0.65, f"GC {gc:.3f} outside [0.35, 0.65]"
+
+    def test_fallback_best_candidate_with_warning_when_impossible(self, ecoli_profile):
+        """When constraints cannot be satisfied the best candidate + warning are returned."""
+        strategy = RandomOptimizationStrategy(
+            gc_min=0.99, gc_max=1.0, max_attempts=20
+        )
+        optimizer = CodonOptimizer(organism=ecoli_profile, strategy=strategy)
+        result = optimizer.optimize_from_protein("MKFLV")
+        assert result.translate() == "MKFLV"
+        assert len(strategy.last_warnings) > 0
+        assert "could not satisfy" in strategy.last_warnings[0].lower()
+
+    def test_differs_from_weighted_random(self, ecoli_profile):
+        """Uniform selection should differ from weighted-random on average."""
+        protein = "MKFLVDTYWSCRHPQEINALMVG" * 3
+        seeded_weighted = []
+        seeded_uniform = []
+        for seed in range(10):
+            wopt = CodonOptimizer(
+                organism=ecoli_profile,
+                strategy=WeightedRandomStrategy(seed=seed),
+            )
+            ropt = CodonOptimizer(
+                organism=ecoli_profile,
+                strategy=RandomOptimizationStrategy(seed=seed),
+            )
+            seeded_weighted.append(wopt.optimize_from_protein(protein).sequence)
+            seeded_uniform.append(ropt.optimize_from_protein(protein).sequence)
+        # At least some sequences should differ between the two strategies
+        assert seeded_weighted != seeded_uniform
+
+    def test_seeded_reproducibility(self, ecoli_profile):
+        """Same seed produces the same sequence."""
+        s1 = RandomOptimizationStrategy(seed=7)
+        s2 = RandomOptimizationStrategy(seed=7)
+        opt1 = CodonOptimizer(organism=ecoli_profile, strategy=s1)
+        opt2 = CodonOptimizer(organism=ecoli_profile, strategy=s2)
+        r1 = opt1.optimize_from_protein("MKFLVDTY")
+        r2 = opt2.optimize_from_protein("MKFLVDTY")
+        assert r1.sequence == r2.sequence
+
+
+class TestVariantConfigLabelRandomOptimization:
+    """VariantConfig.label for the new strategy."""
+
+    def test_label_random_optimization(self):
+        from src.models.sequences import VariantConfig
+        config = VariantConfig(strategy_name="random_optimization")
+        assert config.label == "Random Optimization"
+
+    def test_label_random_optimization_with_gc_range(self):
+        from src.models.sequences import VariantConfig
+        config = VariantConfig(
+            strategy_name="random_optimization", gc_min=0.40, gc_max=0.60
+        )
+        assert "Random Optimization" in config.label
+        assert "GC 40%–60%" in config.label
+
+    def test_label_random_optimization_with_wrscu_range(self):
+        from src.models.sequences import VariantConfig
+        config = VariantConfig(
+            strategy_name="random_optimization", wrscu_min=0.50, wrscu_max=1.50
+        )
+        assert "Random Optimization" in config.label
+        assert "wRSCU 0.50–1.50" in config.label
+
+
+class TestServiceWithNewStrategies:
+    """Service-level integration tests for the new/updated strategies."""
+
+    def test_weighted_random_with_gc_constraint_via_service(self, human_profile):
+        """weighted_random + GC constraints uses rejection sampling in the service."""
+        from src.services.optimization_service import OptimizationService
+        from src.models.sequences import VariantConfig
+        service = OptimizationService()
+        configs = [
+            VariantConfig(
+                strategy_name="weighted_random",
+                gc_min=0.40,
+                gc_max=0.65,
+            )
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLVDTYWSCRHPQEINA",
+            input_type="protein",
+            organism_name="human",
+            variant_configs=configs,
+        )
+        assert len(results) == 1
+        gc = results[0].optimized_dna.gc_content
+        assert 0.40 <= gc <= 0.65, f"GC {gc:.3f} outside expected range"
+
+    def test_random_optimization_strategy_via_service(self, ecoli_profile):
+        """random_optimization strategy is reachable through the service."""
+        from src.services.optimization_service import OptimizationService
+        from src.models.sequences import VariantConfig
+        service = OptimizationService()
+        configs = [VariantConfig(strategy_name="random_optimization")]
+        results = service.optimize_variants(
+            sequence="MKFLVDTY",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        assert len(results) == 1
+        assert results[0].optimized_dna.translate() == "MKFLVDTY"
+        assert "Random Optimization" in results[0].variant_label
+
+    def test_random_optimization_with_gc_constraint_via_service(self, human_profile):
+        """random_optimization + GC constraints uses rejection sampling in the service."""
+        from src.services.optimization_service import OptimizationService
+        from src.models.sequences import VariantConfig
+        service = OptimizationService()
+        configs = [
+            VariantConfig(
+                strategy_name="random_optimization",
+                gc_min=0.35,
+                gc_max=0.65,
+            )
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLVDTYWSCRHPQEINA",
+            input_type="protein",
+            organism_name="human",
+            variant_configs=configs,
+        )
+        assert len(results) == 1
+        gc = results[0].optimized_dna.gc_content
+        assert 0.35 <= gc <= 0.65, f"GC {gc:.3f} outside expected range"
+

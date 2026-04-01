@@ -151,6 +151,7 @@ class MultiVariantCsvExporter:
             strategy_map = {
                 "highest_frequency": "Highest Frequency",
                 "weighted_random": "Weighted Random",
+                "random_optimization": "Random Optimization",
             }
             strategy = strategy_map.get(result.strategy_name, result.strategy_name)
 

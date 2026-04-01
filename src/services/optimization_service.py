@@ -19,6 +19,7 @@ from src.optimization.optimizer import CodonOptimizer
 from src.optimization.strategies import (
     HighestFrequencyStrategy,
     OptimizationStrategy,
+    RandomOptimizationStrategy,
     WeightedRandomStrategy,
 )
 from src.validation.validators import SequenceValidator, ValidationResult
@@ -63,6 +64,10 @@ class OptimizationService:
         strategy_name: str = "highest_frequency",
         constraints: List[OptimizationConstraint] | None = None,
         seed: int | None = None,
+        gc_min: float | None = None,
+        gc_max: float | None = None,
+        wrscu_min: float | None = None,
+        wrscu_max: float | None = None,
     ) -> OptimizationResult:
         """Run the full optimization pipeline.
 
@@ -73,6 +78,10 @@ class OptimizationService:
             strategy_name: Name of the optimization strategy.
             constraints: List of constraint objects.
             seed: Optional random seed for reproducibility.
+            gc_min: Minimum GC fraction passed to rejection-sampling strategies.
+            gc_max: Maximum GC fraction passed to rejection-sampling strategies.
+            wrscu_min: Minimum wRSCU passed to rejection-sampling strategies.
+            wrscu_max: Maximum wRSCU passed to rejection-sampling strategies.
 
         Returns:
             OptimizationResult with all relevant data.
@@ -82,7 +91,11 @@ class OptimizationService:
             raise ValueError(f"Unknown organism: {organism_name}")
 
         # Build strategy
-        strategy = self._build_strategy(strategy_name, seed)
+        strategy = self._build_strategy(
+            strategy_name, seed,
+            gc_min=gc_min, gc_max=gc_max,
+            wrscu_min=wrscu_min, wrscu_max=wrscu_max,
+        )
 
         # Build optimizer
         optimizer = CodonOptimizer(
@@ -122,6 +135,11 @@ class OptimizationService:
                 "WARNING: Optimized sequence does not preserve the original "
                 "amino acid sequence. This indicates a bug."
             )
+
+        # Collect any warnings emitted by the strategy itself (e.g. rejection-
+        # sampling fallback message when constraints could not be satisfied).
+        strategy_warnings = getattr(strategy, "last_warnings", [])
+        warnings.extend(strategy_warnings)
 
         # Check constraints
         constraint_warnings = optimizer.check_constraints(optimized.sequence)
@@ -187,6 +205,10 @@ class OptimizationService:
                 organism_name=organism_name,
                 strategy_name=config.strategy_name,
                 constraints=constraints,
+                gc_min=config.gc_min,
+                gc_max=config.gc_max,
+                wrscu_min=config.wrscu_min,
+                wrscu_max=config.wrscu_max,
             )
             result.variant_label = f"Variant {idx} – {config.label}"
             result.strategy_name = config.strategy_name
@@ -195,11 +217,32 @@ class OptimizationService:
         return results
 
     @staticmethod
-    def _build_strategy(name: str, seed: int | None = None) -> OptimizationStrategy:
+    def _build_strategy(
+        name: str,
+        seed: int | None = None,
+        gc_min: float | None = None,
+        gc_max: float | None = None,
+        wrscu_min: float | None = None,
+        wrscu_max: float | None = None,
+    ) -> OptimizationStrategy:
         """Build a strategy instance by name."""
         if name == "highest_frequency":
             return HighestFrequencyStrategy()
         elif name == "weighted_random":
-            return WeightedRandomStrategy(seed=seed)
+            return WeightedRandomStrategy(
+                seed=seed,
+                gc_min=gc_min,
+                gc_max=gc_max,
+                wrscu_min=wrscu_min,
+                wrscu_max=wrscu_max,
+            )
+        elif name == "random_optimization":
+            return RandomOptimizationStrategy(
+                seed=seed,
+                gc_min=gc_min,
+                gc_max=gc_max,
+                wrscu_min=wrscu_min,
+                wrscu_max=wrscu_max,
+            )
         else:
             raise ValueError(f"Unknown strategy: {name}")
