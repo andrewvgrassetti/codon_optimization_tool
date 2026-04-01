@@ -42,17 +42,27 @@ class CodonOptimizer:
             An optimized DNASequence.
         """
         protein = protein_sequence.upper().strip().rstrip("*")
-        codons: List[str] = []
 
-        for aa in protein:
-            codon = self.strategy.select_codon(aa, self.organism.codon_table)
-            codons.append(codon)
+        # Give the strategy a chance to generate the full sequence at once
+        # (e.g. rejection-sampling strategies).  If it returns None we fall
+        # back to the standard per-codon selection loop.
+        full_seq = self.strategy.optimize_full_sequence(
+            protein, self.organism.codon_table
+        )
+        if full_seq is not None:
+            dna_str = full_seq
+            if self.add_stop_codon:
+                dna_str += "TAA"
+        else:
+            codons: List[str] = []
+            for aa in protein:
+                codon = self.strategy.select_codon(aa, self.organism.codon_table)
+                codons.append(codon)
+            if self.add_stop_codon:
+                # Use TAA as the default stop codon (most common in many organisms)
+                codons.append("TAA")
+            dna_str = "".join(codons)
 
-        if self.add_stop_codon:
-            # Use TAA as the default stop codon (most common in many organisms)
-            codons.append("TAA")
-
-        dna_str = "".join(codons)
         return DNASequence(sequence=dna_str)
 
     def optimize_from_dna(self, dna_sequence: str) -> DNASequence:

@@ -95,11 +95,12 @@ class VariantConfig:
     @property
     def label(self) -> str:
         """Human-readable label describing this variant configuration."""
-        strategy_label = (
-            "Highest Frequency"
-            if self.strategy_name == "highest_frequency"
-            else "Weighted Random"
-        )
+        if self.strategy_name == "highest_frequency":
+            strategy_label = "Highest Frequency"
+        elif self.strategy_name == "random_optimization":
+            strategy_label = "Random Optimization"
+        else:
+            strategy_label = "Weighted Random"
         parts = [strategy_label]
         if self.gc_min is not None and self.gc_max is not None:
             parts.append(f"GC {self.gc_min:.0%}–{self.gc_max:.0%}")
