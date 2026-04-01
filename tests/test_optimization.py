@@ -9,6 +9,7 @@ from src.optimization.constraints import (
     HomopolymerConstraint,
     MotifConstraint,
     RestrictionSiteConstraint,
+    WRSCUConstraint,
 )
 from src.optimization.optimizer import CodonOptimizer
 from src.optimization.strategies import HighestFrequencyStrategy, WeightedRandomStrategy
@@ -161,3 +162,87 @@ class TestConstraints:
         c = MotifConstraint(forbidden_motifs=["AATAAA"])
         warnings = c.check("ATGAAAGCC")
         assert len(warnings) == 0
+
+    def test_wrscu_too_low(self, ecoli_profile):
+        c = WRSCUConstraint(
+            codon_table=ecoli_profile.codon_table,
+            min_wrscu=0.90,
+            max_wrscu=1.50,
+        )
+        # Highest-frequency codons produce wRSCU well below 0.90
+        optimizer = CodonOptimizer(
+            organism=ecoli_profile,
+            strategy=HighestFrequencyStrategy(),
+        )
+        result = optimizer.optimize_from_protein("MKFLVDTY")
+        warnings = c.check(result.sequence)
+        assert len(warnings) == 1
+        assert "below" in warnings[0]
+
+    def test_wrscu_within_range(self, ecoli_profile):
+        c = WRSCUConstraint(
+            codon_table=ecoli_profile.codon_table,
+            min_wrscu=0.10,
+            max_wrscu=2.00,
+        )
+        optimizer = CodonOptimizer(
+            organism=ecoli_profile,
+            strategy=HighestFrequencyStrategy(),
+        )
+        result = optimizer.optimize_from_protein("MKFLVDTY")
+        warnings = c.check(result.sequence)
+        assert len(warnings) == 0
+
+    def test_wrscu_empty_sequence(self, ecoli_profile):
+        c = WRSCUConstraint(
+            codon_table=ecoli_profile.codon_table,
+            min_wrscu=0.50,
+            max_wrscu=1.50,
+        )
+        warnings = c.check("")
+        assert len(warnings) == 0
+
+    def test_wrscu_name(self, ecoli_profile):
+        c = WRSCUConstraint(
+            codon_table=ecoli_profile.codon_table,
+            min_wrscu=0.50,
+            max_wrscu=1.50,
+        )
+        assert "wRSCU" in c.name()
+        assert "0.50" in c.name()
+        assert "1.50" in c.name()
+
+    def test_no_stop_codon_by_default(self, ecoli_profile):
+        optimizer = CodonOptimizer(
+            organism=ecoli_profile,
+            strategy=HighestFrequencyStrategy(),
+        )
+        result = optimizer.optimize_from_protein("MK")
+        # Should NOT end with a stop codon
+        assert not result.sequence.endswith("TAA")
+        assert not result.sequence.endswith("TAG")
+        assert not result.sequence.endswith("TGA")
+        # Should still encode the protein
+        assert result.translate() == "MK"
+
+    def test_stop_codon_opt_in(self, ecoli_profile):
+        optimizer = CodonOptimizer(
+            organism=ecoli_profile,
+            strategy=HighestFrequencyStrategy(),
+            add_stop_codon=True,
+        )
+        result = optimizer.optimize_from_protein("MK")
+        assert result.sequence.endswith("TAA")
+
+    def test_optimize_from_dna_no_stop_codon(self, ecoli_profile):
+        optimizer = CodonOptimizer(
+            organism=ecoli_profile,
+            strategy=HighestFrequencyStrategy(),
+        )
+        # Input DNA has stop codon, output should NOT
+        dna = "ATGAAATAA"
+        result = optimizer.optimize_from_dna(dna)
+        assert result.translate() == "MK"
+        assert not result.sequence.endswith("TAA")
+        assert not result.sequence.endswith("TAG")
+        assert not result.sequence.endswith("TGA")

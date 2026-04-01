@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from src.config.constants import CODON_TABLE, STOP_CODONS
-from src.config.organisms import CodonUsageTable, OrganismProfile
+from src.config.organisms import OrganismProfile
 from src.models.sequences import DNASequence
 from src.optimization.constraints import OptimizationConstraint
 from src.optimization.strategies import (
@@ -26,7 +25,7 @@ class CodonOptimizer:
         organism: OrganismProfile,
         strategy: OptimizationStrategy | None = None,
         constraints: List[OptimizationConstraint] | None = None,
-        add_stop_codon: bool = True,
+        add_stop_codon: bool = False,
     ) -> None:
         self.organism = organism
         self.strategy = strategy or HighestFrequencyStrategy()
@@ -69,17 +68,7 @@ class CodonOptimizer:
         """
         source = DNASequence(sequence=dna_sequence)
         protein = source.translate()
-        has_stop = dna_sequence.upper().strip()
-        last_codon = has_stop[-3:] if len(has_stop) >= 3 else ""
-        original_has_stop = last_codon in STOP_CODONS
-
-        # Temporarily set stop codon preference based on original
-        old_stop = self.add_stop_codon
-        self.add_stop_codon = original_has_stop
-        result = self.optimize_from_protein(protein)
-        self.add_stop_codon = old_stop
-
-        return result
+        return self.optimize_from_protein(protein)
 
     def check_constraints(self, dna_sequence: str) -> List[str]:
         """Run all constraints against a DNA sequence.

@@ -224,3 +224,155 @@ class TestOptimizeVariants:
             assert r.optimized_dna.translate() == original_protein
             assert r.metrics_before
             assert r.metrics_after
+
+    def test_variant_with_wrscu_constraint(self, service):
+        from src.models.sequences import VariantConfig
+
+        configs = [
+            VariantConfig(
+                strategy_name="highest_frequency",
+                wrscu_min=0.90,
+                wrscu_max=1.10,
+            ),
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLVDTY",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        assert len(results) == 1
+        # Highest-frequency strategy typically produces wRSCU below 0.90
+        assert any("wRSCU" in w for w in results[0].warnings)
+        assert "wRSCU 0.90–1.10" in results[0].variant_label
+
+    def test_variant_with_gc_and_wrscu_constraints(self, service):
+        from src.models.sequences import VariantConfig
+
+        configs = [
+            VariantConfig(
+                strategy_name="highest_frequency",
+                gc_min=0.90,
+                gc_max=1.00,
+                wrscu_min=0.90,
+                wrscu_max=1.10,
+            ),
+        ]
+        results = service.optimize_variants(
+            sequence="MKFLV",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        assert len(results) == 1
+        # Both constraints should trigger warnings
+        assert any("GC content" in w for w in results[0].warnings)
+        assert any("wRSCU" in w for w in results[0].warnings)
+
+
+class TestMultiVariantCsvExporter:
+    """Tests for the consolidated multi-variant CSV exporter."""
+
+    def test_csv_headers(self, service):
+        from src.export.exporters import MultiVariantCsvExporter
+        from src.models.sequences import VariantConfig
+        import csv
+        import io
+
+        configs = [VariantConfig(strategy_name="highest_frequency")]
+        results_raw = service.optimize_variants(
+            sequence="MKFLV",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        results = [("test_seq", results_raw[0], "")]
+        csv_str = MultiVariantCsvExporter.export(results)
+        reader = csv.reader(io.StringIO(csv_str))
+        header = next(reader)
+        assert header == [
+            "name", "optimization strategy", "%GC range",
+            "%GC of CDS", "%GC 1", "%GC 2", "%GC 3",
+            "CAI", "wRSCU", "sequence",
+        ]
+
+    def test_csv_multiple_rows(self, service):
+        from src.export.exporters import MultiVariantCsvExporter
+        from src.models.sequences import VariantConfig
+        import csv
+        import io
+
+        configs = [
+            VariantConfig(strategy_name="highest_frequency"),
+            VariantConfig(strategy_name="weighted_random"),
+        ]
+        results_raw = service.optimize_variants(
+            sequence="MKFLV",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        results = [
+            ("seq_v1", results_raw[0], ""),
+            ("seq_v2", results_raw[1], ""),
+        ]
+        csv_str = MultiVariantCsvExporter.export(results)
+        reader = csv.reader(io.StringIO(csv_str))
+        rows = list(reader)
+        assert len(rows) == 3  # header + 2 data rows
+        assert rows[1][0] == "seq_v1"
+        assert rows[2][0] == "seq_v2"
+        # Check strategy column
+        assert rows[1][1] == "Highest Frequency"
+        assert rows[2][1] == "Weighted Random"
+        # Check sequence column is non-empty
+        assert len(rows[1][9]) > 0
+        assert len(rows[2][9]) > 0
+
+    def test_csv_skips_errors(self, service):
+        from src.export.exporters import MultiVariantCsvExporter
+        from src.models.sequences import VariantConfig
+        import csv
+        import io
+
+        configs = [VariantConfig(strategy_name="highest_frequency")]
+        results_raw = service.optimize_variants(
+            sequence="MKFLV",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        results = [
+            ("good_seq", results_raw[0], ""),
+            ("bad_seq", None, "Some error"),
+        ]
+        csv_str = MultiVariantCsvExporter.export(results)
+        reader = csv.reader(io.StringIO(csv_str))
+        rows = list(reader)
+        assert len(rows) == 2  # header + 1 data row (error skipped)
+
+    def test_csv_gc_range_in_output(self, service):
+        from src.export.exporters import MultiVariantCsvExporter
+        from src.models.sequences import VariantConfig
+        import csv
+        import io
+
+        configs = [
+            VariantConfig(
+                strategy_name="highest_frequency",
+                gc_min=0.40,
+                gc_max=0.60,
+            ),
+        ]
+        results_raw = service.optimize_variants(
+            sequence="MKFLV",
+            input_type="protein",
+            organism_name="e_coli",
+            variant_configs=configs,
+        )
+        results = [("test_seq", results_raw[0], "")]
+        csv_str = MultiVariantCsvExporter.export(results)
+        reader = csv.reader(io.StringIO(csv_str))
+        rows = list(reader)
+        # The GC range column should contain the range
+        assert "40%–60%" in rows[1][2]

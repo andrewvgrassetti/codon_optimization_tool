@@ -89,3 +89,27 @@ class TestVariantConfig:
     def test_label_without_gc_range(self):
         config = VariantConfig(strategy_name="highest_frequency")
         assert "GC" not in config.label
+
+    def test_default_wrscu_values(self):
+        config = VariantConfig()
+        assert config.wrscu_min is None
+        assert config.wrscu_max is None
+
+    def test_label_with_wrscu_range(self):
+        config = VariantConfig(
+            strategy_name="weighted_random", wrscu_min=0.50, wrscu_max=1.50
+        )
+        assert "Weighted Random" in config.label
+        assert "wRSCU 0.50–1.50" in config.label
+
+    def test_label_with_gc_and_wrscu_range(self):
+        config = VariantConfig(
+            strategy_name="highest_frequency",
+            gc_min=0.40,
+            gc_max=0.60,
+            wrscu_min=0.50,
+            wrscu_max=1.50,
+        )
+        assert "Highest Frequency" in config.label
+        assert "GC 40%–60%" in config.label
+        assert "wRSCU 0.50–1.50" in config.label
