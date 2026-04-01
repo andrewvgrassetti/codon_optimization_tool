@@ -176,7 +176,7 @@ class StreamlitApp:
             selected_sites = st.sidebar.multiselect(
                 "Restriction Enzymes",
                 options=available_sites,
-                default=["BspQI"],
+                default=["BspQI","BsaI"],
                 format_func=lambda name: f"{name} ({COMMON_RESTRICTION_SITES[name]})",
             )
             sites_dict = {
